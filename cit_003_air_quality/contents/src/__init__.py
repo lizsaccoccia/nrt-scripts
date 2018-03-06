@@ -6,6 +6,7 @@ from collections import OrderedDict
 import cartosql
 import datetime
 import hashlib
+from . import aqi_config
 
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
@@ -14,19 +15,19 @@ DATA_DIR = 'data'
 # max page size = 10000
 DATA_URL = 'https://api.openaq.org/v1/measurements?limit=10000&include_fields=attribution&page={page}'
 # always check first 10 pages
-MIN_PAGES = 10
-MAX_PAGES = 200
+MIN_PAGES = 1
+MAX_PAGES = 2
 
 # asserting table structure rather than reading from input
 PARAMS = ('pm25', 'pm10', 'so2', 'no2', 'o3', 'co', 'bc')
 CARTO_TABLES = {
-    'pm25':'cit_003a_air_quality_pm25',
-    'pm10':'cit_003b_air_quality_pm10',
-    'so2':'cit_003c_air_quality_so2',
-    'no2':'cit_003d_air_quality_no2',
-    'o3':'cit_003e_air_quality_o3',
-    'co':'cit_003f_air_quality_co',
-    'bc':'cit_003g_air_quality_bc'
+    'pm25':'cit_003a_air_quality_pm25_aqi',
+    'pm10':'cit_003b_air_quality_pm10_aqi',
+    'so2':'cit_003c_air_quality_so2_aqi',
+    'no2':'cit_003d_air_quality_no2_aqi',
+    'o3':'cit_003e_air_quality_o3_aqi',
+    'co':'cit_003f_air_quality_co_aqi',
+    'bc':'cit_003g_air_quality_bc_aqi'
 }
 CARTO_SCHEMA = OrderedDict([
     ("the_geom", "geometry"),
@@ -39,7 +40,8 @@ CARTO_SCHEMA = OrderedDict([
     ("country", "text"),
     ("unit", "text"),
     ("attribution", "text"),
-    ("ppm", "numeric")
+    ("ppm", "numeric"),
+    ("aqi", "numeric")
 ])
 CARTO_GEOM_TABLE = 'cit_003loc_air_quality'
 CARTO_GEOM_SCHEMA = OrderedDict([
@@ -63,6 +65,7 @@ MAXAGE = datetime.datetime.now() - datetime.timedelta(days=30)
 
 # conversions
 UGM3 = ["\u00b5g/m\u00b3", "ug/m3"]
+# Measured in g/mol
 MOL_WEIGHTS = {
     'so2': 64,
     'no2': 46,
@@ -70,19 +73,15 @@ MOL_WEIGHTS = {
     'co': 28
 }
 
+PPM_AQI = ['so2', 'no2', 'co']
+UM3_AQI = ['pm25', 'pm10']
 
-def convert(param, unit, value):
-    if param in MOL_WEIGHTS.keys() and unit in UGM3:
-        return convert_ugm3_ppm(value, MOL_WEIGHTS[param])
-    return value
-
-
-def convert_ugm3_ppm(ugm3, mol, T=0, P=101.325):
+def convert_ugm3_ppm(param, ugm3, T=0, P=101.325):
     # ideal gas conversion
+    mol = MOL_WEIGHTS[param]
     K = 273.15    # 0C
     Atm = 101.325 # kPa
     return float(ugm3)/mol * 22.414 * (T+K)/K * Atm/P / 1000
-
 
 # Generate UID
 def genUID(obs):
@@ -90,15 +89,29 @@ def genUID(obs):
     id_str = '{}_{}'.format(obs['location'], obs['date']['utc'])
     return hashlib.md5(id_str.encode('utf8')).hexdigest()
 
-
 # Generate UID for location
 def genLocID(obs):
     return hashlib.md5(obs['location'].encode('utf8')).hexdigest()
 
-
 # Parse OpenAQ fields
 def parseFields(obs, uid, fields):
     row = []
+
+    if obs['parameter'] in MOL_WEIGHTS.keys():
+        if obs['unit'] in UGM3:
+            ppm = convert_ugm3_ppm(obs['parameter'], obs['value'])
+        else:
+            ppm = obs['value']
+    else:
+        ppm = None
+
+    if obs['parameter'] in PPM_AQI:
+        aqi = aqi_config.calculate_AQI(obs['parameter'], ppm)
+    elif obs['parameter'] in UM3_AQI:
+        aqi = aqi_config.calculate_AQI(obs['parameter'], obs['value'])
+    else:
+        aqi = None
+
     for field in fields:
         if field == 'the_geom':
             # construct geojson
@@ -120,8 +133,9 @@ def parseFields(obs, uid, fields):
         elif field == 'attribution':
             row.append(str(obs['attribution']))
         elif field == 'ppm':
-            ppm = convert(obs['parameter'], obs['unit'], obs['value'])
             row.append(ppm)
+        elif field == 'aqi':
+            row.append(aqi)
         else:
             row.append(obs[field])
     return row
@@ -214,8 +228,8 @@ def main():
         # 2.3 insert new locations
         if len(loc_rows):
             logging.info('Pushing {} new locations'.format(len(loc_rows)))
-            cartosql.insertRows(CARTO_GEOM_TABLE, CARTO_GEOM_SCHEMA.keys(),
-                                CARTO_GEOM_SCHEMA.values(), loc_rows)
+            #cartosql.insertRows(CARTO_GEOM_TABLE, CARTO_GEOM_SCHEMA.keys(),
+            #                    CARTO_GEOM_SCHEMA.values(), loc_rows)
 
         # 2.4 insert new rows
         for param in PARAMS:
