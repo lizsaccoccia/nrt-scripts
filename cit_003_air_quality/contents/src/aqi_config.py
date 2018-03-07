@@ -7,9 +7,9 @@ logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 ## AQI Calculation from BlueRaster
 ####
 
-# breakpoints: http://wri-users.s3.amazonaws.com/sminnemeyer/epa_aqi_documentation.pdf
+# EPA breakpoints: http://wri-users.s3.amazonaws.com/sminnemeyer/epa_aqi_documentation.pdf
+# WHO breakpoints: http://www.who.int/mediacentre/factsheets/fs313/en/
 # conversions: https://cfpub.epa.gov/ncer_abstracts/index.cfm/fuseaction/display.files/fileID/14285
-
 ## Note: this depends on Air Temperature, and 2.45 is just an approximation
 # ug/m3 -> ppm
 ug_to_mg = 0.001
@@ -19,7 +19,7 @@ mg_to_ppm_coef = 24.45
 ppm_to_mg_coef = 0.0409 # (1/24.45)
 mg_to_ug = 1000
 
-categories = {
+epa_categories = {
 	0: {
 		"low": 0,
 		"high": 50,
@@ -52,7 +52,7 @@ categories = {
 	}
 }
 
-breakpoints = {
+epa_breakpoints = {
 	"o3_8hr": {
 		"min": 0,
 		"digits": 3,
@@ -94,12 +94,26 @@ breakpoints = {
 	}
 }
 
+who_categories = {
 
-def calculate_AQI(param, value):
+}
+
+who_breakpoints = {
+
+}
+
+def calculate_AQI(param, value, standard):
 	'''Assumes value is provided in correct format matching breakpoints above'''
 	logging.info('Param: {}, {}'.format(param, value))
 	# get the breakdowns at each level for the parameter
-	bp = breakpoints[param]
+	if standard == 'EPA':
+		bp = epa_breakpoints[param]
+	elif standard == 'WHO':
+		bp = who_breakpoints[param]
+	else:
+		logging.error('Not a valid AQI standard')
+		return None
+
 	value = round(value, bp['digits'])
 	# only calculate AQI if the measurement is above the minimum threshold
 	if value >= bp['min']:

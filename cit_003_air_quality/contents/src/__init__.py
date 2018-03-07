@@ -41,7 +41,7 @@ CARTO_SCHEMA = OrderedDict([
     ("unit", "text"),
     ("attribution", "text"),
     ("ppm", "numeric"),
-    ("aqi", "numeric")
+    ("epa_aqi", "numeric")
 ])
 CARTO_GEOM_TABLE = 'cit_003loc_air_quality'
 CARTO_GEOM_SCHEMA = OrderedDict([
@@ -106,9 +106,9 @@ def parseFields(obs, uid, fields):
         ppm = None
 
     if obs['parameter'] in PPM_AQI:
-        aqi = aqi_config.calculate_AQI(obs['parameter'], ppm)
+        epa_aqi = aqi_config.calculate_AQI(obs['parameter'], ppm, 'EPA')
     elif obs['parameter'] in UM3_AQI:
-        aqi = aqi_config.calculate_AQI(obs['parameter'], obs['value'])
+        epa_aqi = aqi_config.calculate_AQI(obs['parameter'], obs['value'], 'EPA')
     else:
         aqi = None
 
@@ -134,7 +134,7 @@ def parseFields(obs, uid, fields):
             row.append(str(obs['attribution']))
         elif field == 'ppm':
             row.append(ppm)
-        elif field == 'aqi':
+        elif field == 'epa_aqi':
             row.append(aqi)
         else:
             row.append(obs[field])
